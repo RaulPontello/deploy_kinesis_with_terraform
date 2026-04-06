@@ -57,7 +57,7 @@ DEFAULT_INTERVAL_SECONDS = 10
 DEFAULT_DURATION_SECONDS = None  # None = run forever
 
 AWS_REGION        = os.getenv("AWS_REGION", "us-east-1")
-STREAM_NAME       = os.getenv("KINESIS_STREAM_NAME", "stock-market-kinesis-dev-stream")
+STREAM_NAME       = os.getenv("KINESIS_STREAM_NAME", "stock-market-kinesis-dev-kinesis-stream")
 MAX_BATCH_SIZE    = 500          # Kinesis PutRecords max = 500 records per call
 MAX_BATCH_BYTES   = 5 * 1024 * 1024  # 5 MB per PutRecords call
 MAX_RECORD_BYTES  = 1 * 1024 * 1024  # 1 MB per single record
@@ -334,8 +334,9 @@ class KinesisProducer:
         self, records: list[dict], batch_idx: int
     ) -> tuple[int, int]:
         """Send one batch, retrying any failed records up to max_retries."""
-        remaining = records
-        attempt   = 0
+        remaining    = records
+        attempt      = 0
+        cumulative_ok = 0
 
         while remaining and attempt <= self.max_retries:
             if attempt > 0:
@@ -362,12 +363,12 @@ class KinesisProducer:
                         )
                         failed_records.append(remaining[i])
 
-                ok_count = len(remaining) - len(failed_records)
+                cumulative_ok += len(remaining) - len(failed_records)
                 remaining = failed_records
                 attempt  += 1
 
                 if not failed_records:
-                    return ok_count, 0   # all records sent successfully
+                    return cumulative_ok, 0   # all records eventually sent
 
             except (BotoCoreError, ClientError) as exc:
                 self.stats["api_errors"] += 1
@@ -375,8 +376,7 @@ class KinesisProducer:
                 attempt += 1
 
         failed_count = len(remaining)
-        ok_count     = len(records) - failed_count
-        return ok_count, failed_count
+        return cumulative_ok, failed_count
 
     def describe_stream(self) -> dict:
         """Returns basic stream info for startup validation."""

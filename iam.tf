@@ -110,3 +110,64 @@ resource "aws_iam_role_policy" "firehose_delivery" {
   role   = aws_iam_role.firehose_delivery.id
   policy = data.aws_iam_policy_document.firehose_permissions.json
 }
+
+# ─────────────────────────────────────────────
+# IAM User - Data Producer
+# ─────────────────────────────────────────────
+
+resource "aws_iam_user" "producer" {
+  name = "${local.generic_prefix}-producer"
+  path = "/"
+}
+
+resource "aws_iam_access_key" "producer" {
+  user = aws_iam_user.producer.name
+}
+
+# Permission policy – least privilege, only what PutRecords needs
+data "aws_iam_policy_document" "producer_permissions" {
+
+  # Write records to the Kinesis stream
+  statement {
+    sid    = "PutToKinesisStream"
+    effect = "Allow"
+
+    actions = [
+      "kinesis:PutRecord",
+      "kinesis:PutRecords",
+      "kinesis:DescribeStream",
+      "kinesis:DescribeStreamSummary",
+      "kinesis:ListShards",
+    ]
+
+    resources = [aws_kinesis_stream.stock_market.arn]
+  }
+
+  # KMS – required only when stream encryption is enabled
+  dynamic "statement" {
+    for_each = var.kinesis_encryption_enabled ? [1] : []
+    content {
+      sid    = "KMSForKinesisEncryption"
+      effect = "Allow"
+
+      actions = [
+        "kms:GenerateDataKey",
+        "kms:Decrypt",
+      ]
+
+      resources = ["*"]
+
+      condition {
+        test     = "StringLike"
+        variable = "kms:ViaService"
+        values   = ["kinesis.${var.aws_region}.amazonaws.com"]
+      }
+    }
+  }
+}
+
+resource "aws_iam_user_policy" "producer" {
+  name   = "${local.generic_prefix}-producer-policy"
+  user   = aws_iam_user.producer.name
+  policy = data.aws_iam_policy_document.producer_permissions.json
+}

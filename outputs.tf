@@ -56,6 +56,36 @@ output "firehose_role_arn" {
 }
 
 # ─────────────────────────────────────────────
+#  IAM – Producer
+# ─────────────────────────────────────────────
+output "producer_iam_user" {
+  description = "IAM username for the Kinesis producer"
+  value       = aws_iam_user.producer.name
+}
+
+output "producer_access_key_id" {
+  description = "AWS Access Key ID for the producer — paste into .env"
+  value       = aws_iam_access_key.producer.id
+}
+
+output "producer_secret_access_key" {
+  description = "AWS Secret Access Key for the producer (sensitive)"
+  value       = aws_iam_access_key.producer.secret
+  sensitive   = true
+}
+
+output "producer_env_snippet" {
+  description = "Ready-to-paste .env block — run: terraform output -raw producer_env_snippet"
+  value       = <<-EOT
+    AWS_REGION=${var.aws_region}
+    KINESIS_STREAM_NAME=${aws_kinesis_stream.stock_market.name}
+    AWS_ACCESS_KEY_ID=${aws_iam_access_key.producer.id}
+    AWS_SECRET_ACCESS_KEY=<run: terraform output -raw producer_secret_access_key>
+  EOT
+  sensitive   = true
+}
+
+# ─────────────────────────────────────────────
 #  CloudWatch
 # ─────────────────────────────────────────────
 output "cloudwatch_log_group" {

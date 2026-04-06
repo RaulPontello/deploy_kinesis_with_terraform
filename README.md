@@ -14,7 +14,7 @@
 6. [Deploy the Infrastructure](#6-deploy-the-infrastructure)
 7. [Run the Producer](#7-run-the-producer)
 8. [Query Your Data in S3](#8-query-your-data-in-s3)
-9. [Monitoring & Alarms](#9-monitoring--alarms)
+9. [Monitoring](#9-monitoring)
 10. [Teardown](#10-teardown)
 11. [Troubleshooting](#11-troubleshooting)
 12. [Cost Estimate](#12-cost-estimate)
@@ -65,7 +65,7 @@ Kinesis Data Stream  +  Kinesis Data Firehose  →  S3
 │                                        ▼                                   │
 │                              ┌──────────────────┐                         │
 │                              │   CloudWatch     │                         │
-│                              │  Logs + Alarms   │                         │
+│                              │  Logs (errors)   │                         │
 │                              └──────────────────┘                         │
 │                                                                            │
 │  IAM: Producer User (PutRecords only) · Firehose Role (read stream + S3)  │
@@ -435,24 +435,18 @@ ORDER BY avg_price DESC;
 
 ---
 
-## 9. Monitoring & Alarms
-
-Two CloudWatch alarms are pre-configured:
-
-| Alarm | Metric | Threshold | Meaning |
-|---|---|---|---|
-| `write-throttled` | `WriteProvisionedThroughputExceeded` | > 0 for 2 min | Producer is hitting shard limits → add shards |
-| `firehose-freshness` | `DeliveryToS3.DataFreshness` | > 900 s for 6 min | Firehose is lagging → check S3 permissions |
-
-**View alarms:**
-```bash
-aws cloudwatch describe-alarms --alarm-name-prefix "stock-market-kinesis-dev"
-```
+## 9. Monitoring
 
 **View Firehose error logs:**
 ```bash
 aws logs tail /aws/kinesisfirehose/stock-market-kinesis-dev --follow
 ```
+
+**View stream metrics in CloudWatch console:**
+
+Navigate to CloudWatch → Metrics → Kinesis → Stream Metrics and watch:
+- `WriteProvisionedThroughputExceeded` — producer hitting shard limits
+- `DeliveryToS3.DataFreshness` (Firehose namespace) — delivery lag
 
 ---
 
