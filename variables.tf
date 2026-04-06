@@ -5,13 +5,13 @@
 variable "project_name" {
   description = "Name used to prefix all AWS resources"
   type        = string
-  default     = "stock-market-kinesis-with-terraform"
+  default     = "stock-market-kinesis"
 }
 
 variable "profile_name" {
   description = "Name of the profile used to connect to AWS Account"
   type        = string
-  default     = "caylent_dev"
+  default     = "caylent_profile"
 }
 
 variable "owner_name" {

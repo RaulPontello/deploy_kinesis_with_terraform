@@ -2,6 +2,7 @@
 # ─────────────────────────────────────────────
 # S3 Data Lake Bucket
 # ─────────────────────────────────────────────
+
 resource "aws_s3_bucket" "data_lake" {
   bucket        = local.bucket_name
   force_destroy = var.s3_bucket_force_destroy
