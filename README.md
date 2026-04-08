@@ -639,13 +639,11 @@ Destroy the stack when not in use — `terraform destroy` takes ~30 seconds.
 ### AWS
 
 - [Amazon Kinesis Data Streams Developer Guide](https://docs.aws.amazon.com/streams/latest/dev/introduction.html)
-- [Amazon Kinesis Data Streams API Reference](https://docs.aws.amazon.com/kinesis/latest/APIReference/Welcome.html)
 - [Amazon Kinesis Data Firehose Developer Guide](https://docs.aws.amazon.com/firehose/latest/dev/what-is-this-service.html)
 - [Amazon S3 User Guide](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html)
 - [AWS IAM User Guide](https://docs.aws.amazon.com/IAM/latest/UserGuide/introduction.html)
 - [AWS CLI Configuration Guide](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html)
 - [Amazon CloudWatch Logs User Guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/WhatIsCloudWatchLogs.html)
-- [Amazon Athena User Guide](https://docs.aws.amazon.com/athena/latest/ug/what-is.html)
 
 ### Terraform
 
@@ -663,5 +661,3 @@ Destroy the stack when not in use — `terraform destroy` takes ~30 seconds.
 - [python-dotenv](https://github.com/theskumar/python-dotenv)
 
 ---
-
-*Project: stock-market-kinesis · Author: Raul Pontello*
