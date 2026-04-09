@@ -226,6 +226,13 @@ Default region name [None]:   us-east-1
 Default output format [None]: json
 ```
 
+The credentials are saved to the AWS credentials file on your machine:
+
+| OS | File location |
+|---|---|
+| macOS / Linux | `~/.aws/credentials` |
+| Windows | `C:\Users\YOUR_USERNAME\.aws\credentials` |
+
 **Step 3: Tell Terraform which profile to use**
 
 The `profile_name` variable in [terraform/variables.tf](terraform/variables.tf) is passed to the AWS provider. Set it to match your profile name.
@@ -252,13 +259,30 @@ aws sts get-caller-identity --profile my-profile
 
 ### Option B — Environment variables
 
-If you prefer not to use a named profile, export credentials directly:
+If you prefer not to use a named profile, set credentials as environment variables in your terminal session.
 
+**macOS / Linux** (bash or zsh):
 ```bash
 export AWS_ACCESS_KEY_ID=AKIA...
 export AWS_SECRET_ACCESS_KEY=your-secret-key
 export AWS_DEFAULT_REGION=us-east-1
 ```
+To persist across sessions, add those lines to `~/.bashrc` or `~/.zshrc`.
+
+**Windows — Command Prompt:**
+```cmd
+set AWS_ACCESS_KEY_ID=AKIA...
+set AWS_SECRET_ACCESS_KEY=your-secret-key
+set AWS_DEFAULT_REGION=us-east-1
+```
+
+**Windows — PowerShell:**
+```powershell
+$env:AWS_ACCESS_KEY_ID="AKIA..."
+$env:AWS_SECRET_ACCESS_KEY="your-secret-key"
+$env:AWS_DEFAULT_REGION="us-east-1"
+```
+To persist across PowerShell sessions, use `[System.Environment]::SetEnvironmentVariable(...)` or set them in **System Properties → Environment Variables**.
 
 When environment variables are set, the AWS provider picks them up automatically and the `profile_name` variable is ignored.
 
@@ -618,23 +642,7 @@ Markets may be closed (weekends/holidays). yfinance returns the last available p
 
 ---
 
-## 13. Cost Estimate
-
-For a dev setup running 8 hours/day:
-
-| Service | Usage | Estimated monthly cost |
-|---|---|---|
-| Kinesis Data Stream | 1 shard | ~$11 |
-| Kinesis Firehose | 5 tickers × 10s × ~1 KB ≈ 43 MB/day | < $1 |
-| S3 Storage | ~1 GB/month (compressed) | < $1 |
-| CloudWatch Logs | Firehose error logs | < $1 |
-| **Total** | | **~$13/month** |
-
-Destroy the stack when not in use — `terraform destroy` takes ~30 seconds.
-
----
-
-## 14. Official Documentation
+## 13. Official Documentation
 
 ### AWS
 
