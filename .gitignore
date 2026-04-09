@@ -1,0 +1,17 @@
+# Terraform state and metadata
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.backup
+**/*.tfstate.lock.info
+**/*.plan
+**/.terraform.lock.hcl
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
