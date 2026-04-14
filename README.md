@@ -1,6 +1,6 @@
 # Stock Market Kinesis Pipeline
 
-> End-to-end real-time data streaming with AWS Kinesis Data Stream, Kinesis Firehose, S3, and a Python producer that pulls live stock quotes via Yahoo Finance — all provisioned with Terraform.
+> This is an education project: End-to-end real-time data streaming with AWS Kinesis Data Stream, Kinesis Firehose, S3, Lambda Function and SNS for alerts and a Python producer that pulls live stock quotes via Yahoo Finance — all provisioned with Terraform.
 
 ---
 
@@ -15,10 +15,10 @@
 7. [Deploy the Infrastructure](#7-deploy-the-infrastructure)
 8. [Run the Producer](#8-run-the-producer)
 9. [Query Data in S3](#9-query-data-in-s3)
-10. [Monitoring](#10-monitoring)
-11. [Teardown](#11-teardown)
-12. [Troubleshooting](#12-troubleshooting)
-13. [Cost Estimate](#13-cost-estimate)
+10. [Spike Detection (Lambda + SNS)](#10-spike-detection-lambda--sns)
+11. [Monitoring](#11-monitoring)
+12. [Teardown](#12-teardown)
+13. [Troubleshooting](#13-troubleshooting)
 14. [Official Documentation](#14-official-documentation)
 
 ---
@@ -42,11 +42,15 @@ Python Producer (yfinance)
         ▼
 Kinesis Data Stream   (real-time ingestion, 1 shard, KMS encrypted)
         │
-        ▼
-Kinesis Data Firehose (buffering 5 MB / 60 s, GZIP compression)
+        ├──► Kinesis Data Firehose (buffering 5 MB / 60 s, GZIP compression)
+        │           │
+        │           ▼
+        │    S3 Data Lake (partitioned by year / month / day / hour)
         │
-        ▼
-S3 Data Lake          (partitioned by year / month / day / hour)
+        └──► Lambda – Spike Detector (batch 10, TRIM_HORIZON)
+                    │
+                    ▼
+             SNS Topic → Email alert (price_change_pct ≥ ±1%)
 ```
 
 ---
@@ -54,33 +58,44 @@ S3 Data Lake          (partitioned by year / month / day / hour)
 ## 2. Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                    PRODUCER  (local machine)                     │
-│                                                                  │
-│   yfinance ──► StockFetcher ──► KinesisProducer ──► PutRecords   │
-└──────────────────────────────┬───────────────────────────────────┘
-                               │  JSON records
-                               │  PartitionKey = ticker symbol
-                               ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                             AWS                                  │
-│                                                                  │
-│  ┌──────────────────┐   ┌─────────────────────┐   ┌──────────┐   │
-│  │ Kinesis Data     │──►│ Kinesis Firehose    │──►│  S3      │   │
-│  │ Stream           │   │ Delivery Stream     │   │ Data     │   │
-│  │ 1 shard · 24h    │   │ 5 MB / 60s buffer   │   │ Lake     │   │
-│  │ SSE (KMS)        │   │ GZIP · error logs   │   │ (GZIP)   │   │
-│  └──────────────────┘   └─────────────────────┘   └──────────┘   │
-│                                    │                             │
-│                                    ▼                             │
-│                          ┌──────────────────┐                    │
-│                          │   CloudWatch     │                    │
-│                          │   Logs           │                    │
-│                          └──────────────────┘                    │
-│                                                                  │
-│  IAM: Producer User (PutRecords only)                            │
-│       Firehose Role  (read stream + write S3)                    │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                        PRODUCER  (local machine)                         │
+│                                                                          │
+│   yfinance ──► StockFetcher ──► KinesisProducer ──► PutRecords (batch)   │
+└──────────────────────────────────┬───────────────────────────────────────┘
+                                   │  JSON records
+                                   │  PartitionKey = ticker symbol
+                                   ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                                 AWS                                      │
+│                                                                          │
+│  ┌───────────────────┐                                                   │
+│  │  Kinesis Data     │──────────────────────────────────────────────┐    │
+│  │  Stream           │                                              │    │
+│  │  1 shard · 24h    │                                              │    │
+│  │  SSE (KMS)        │                                              │    │
+│  └─────────┬─────────┘                                              │    │
+│            │                                                        │    │
+│            ▼                                                        ▼    │
+│  ┌──────────────────────┐   ┌──────────┐   ┌──────────────────────────┐  │
+│  │  Kinesis Firehose    │──►│  S3      │   │  Lambda                  │  │
+│  │  Delivery Stream     │   │  Data    │   │  Spike Detector          │  │
+│  │  5 MB / 60s buffer   │   │  Lake    │   │  batch=10 · timeout=60s  │  │
+│  │  GZIP · error logs   │   │  (GZIP)  │   └──────────┬───────────────┘  │
+│  └──────────┬───────────┘   └──────────┘              │                  │
+│             │                                         ▼                  │
+│             ▼                               ┌──────────────────────┐     │
+│  ┌──────────────────┐                       │  SNS Topic           │     │
+│  │   CloudWatch     │                       │  spike-alerts        │     │
+│  │   Logs           │                       │         │            │     │
+│  └──────────────────┘                       └─────────┼────────────┘     │
+│                                                       ▼                  │
+│                                               Email alert                │
+│                                                                          │
+│  IAM: Producer User       (PutRecords only)                              │
+│       Firehose Role       (read stream + write S3)                       │
+│       Lambda Exec Role    (read stream + SNS publish + CW logs)          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -134,17 +149,19 @@ s3://your-bucket/stock-data/
 ### IAM Least Privilege
 
 ```
-Producer IAM User          Firehose IAM Role
-─────────────────          ────────────────────────────
-kinesis:PutRecord          kinesis:GetRecords
-kinesis:PutRecords         kinesis:GetShardIterator
-kinesis:DescribeStream     kinesis:DescribeStream
-kinesis:ListShards         s3:PutObject
-kms:GenerateDataKey        kms:Decrypt
-kms:Decrypt                logs:PutLogEvents
+Producer IAM User          Firehose IAM Role          Lambda Execution Role
+─────────────────          ──────────────────         ─────────────────────────
+kinesis:PutRecord          kinesis:GetRecords          kinesis:GetRecords
+kinesis:PutRecords         kinesis:GetShardIterator    kinesis:GetShardIterator
+kinesis:DescribeStream     kinesis:DescribeStream      kinesis:DescribeStream
+kinesis:ListShards         s3:PutObject                kinesis:ListShards
+kms:GenerateDataKey        kms:Decrypt                 kms:Decrypt
+kms:Decrypt                logs:PutLogEvents           logs:CreateLogGroup
+                                                       logs:PutLogEvents
+                                                       sns:Publish
 ```
 
-No producer credential ever touches S3. No Firehose role can write to Kinesis.
+No producer credential ever touches S3. No Firehose role can write to Kinesis. The Lambda role cannot write records back to the stream.
 
 ---
 
@@ -162,9 +179,14 @@ deploy_kinesis_with_terraform/
 │   ├── locals.tf                 # Computed local values (names, prefixes)
 │   ├── kinesis.tf                # Kinesis Data Stream + Firehose resources
 │   ├── s3.tf                     # S3 bucket and public access block
-│   ├── iam.tf                    # IAM roles, users, and policies
+│   ├── iam.tf                    # IAM roles, users, and policies (Firehose + Producer + Lambda)
+│   ├── lambda.tf                 # Lambda function + Kinesis event source mapping
+│   ├── sns.tf                    # SNS topic + email subscription for spike alerts
 │   ├── cloud_watch.tf            # CloudWatch log group and stream
-│   └── outputs.tf                # Outputs after apply (stream name, bucket, keys)
+│   └── outputs.tf                # Outputs after apply (stream name, bucket, keys, Lambda, SNS)
+│
+├── lambda/                       # Lambda function source
+│   └── spike_detector.py         # Spike detection handler (no extra dependencies)
 │
 └── data_producer/                # Python producer application
     ├── stock_producer.py         # Main producer script
@@ -340,12 +362,39 @@ Compares your configuration against the current state of AWS and shows exactly w
 terraform plan -out my_plan.plan
 ```
 
-Expected output (first deploy, ~12 resources):
+Expected output (first deploy, ~17 resources):
 ```
-Plan: 12 to add, 0 to change, 0 to destroy.
+Plan: 17 to add, 0 to change, 0 to destroy.
 
 ─────────────────────────────────────────────────────────────
 Saved the plan to: my_plan.plan
+```
+
+#### `terraform show my_plan.plan` — read the saved plan
+
+The plan file is binary. Use `terraform show` to render it as human-readable text before applying:
+
+```bash
+terraform show my_plan.plan
+```
+
+This prints every resource action (`+` create, `~` update, `-` destroy) with all attribute values, making it easy to review the exact changes Terraform will make:
+
+```
+# aws_kinesis_stream.stock_market will be created
++ resource "aws_kinesis_stream" "stock_market" {
+    + arn              = (known after apply)
+    + name             = "stock-market-kinesis-dev-kinesis-stream"
+    + shard_count      = 1
+    ...
+  }
+
+# aws_lambda_function.spike_detector will be created
++ resource "aws_lambda_function" "spike_detector" {
+    + function_name = "stock-market-kinesis-dev-spike-detector"
+    + runtime       = "python3.12"
+    ...
+  }
 ```
 
 Review the plan carefully before proceeding. No changes are made at this step.
@@ -399,6 +448,84 @@ Key outputs:
 | `producer_access_key_id` | AWS key ID for the producer IAM user |
 | `producer_secret_access_key` | AWS secret key (sensitive) |
 | `cloudwatch_log_group` | Firehose error log group |
+| `sns_spike_alerts_arn` | ARN of the SNS spike-alert topic |
+| `lambda_function_name` | Name of the spike detector Lambda |
+| `lambda_function_arn` | ARN of the spike detector Lambda |
+
+---
+
+### Step 6 — `terraform show`
+
+After applying, `terraform show` reads the state file and prints every managed resource with its current attribute values. Unlike `terraform output`, this shows the full picture — not just the declared outputs.
+
+```bash
+terraform show
+```
+
+Useful for confirming actual values that were only known after creation, such as ARNs, IDs, and generated names:
+
+```
+# aws_kinesis_stream.stock_market:
+resource "aws_kinesis_stream" "stock_market" {
+    arn              = "arn:aws:kinesis:us-east-1:123456789012:stream/stock-market-kinesis-dev-kinesis-stream"
+    name             = "stock-market-kinesis-dev-kinesis-stream"
+    shard_count      = 1
+    stream_mode_details {
+        stream_mode = "PROVISIONED"
+    }
+}
+
+# aws_lambda_function.spike_detector:
+resource "aws_lambda_function" "spike_detector" {
+    arn           = "arn:aws:lambda:us-east-1:123456789012:function:stock-market-kinesis-dev-spike-detector"
+    function_name = "stock-market-kinesis-dev-spike-detector"
+    runtime       = "python3.12"
+}
+```
+
+---
+
+### Step 7 — `terraform state list`
+
+Lists every resource currently tracked in the Terraform state file. Use this to get a quick inventory of what is deployed without reading through all attributes.
+
+```bash
+terraform state list
+```
+
+Expected output:
+```
+data.archive_file.spike_detector
+data.aws_iam_policy_document.firehose_assume_role
+data.aws_iam_policy_document.firehose_permissions
+data.aws_iam_policy_document.lambda_assume_role
+data.aws_iam_policy_document.lambda_permissions
+data.aws_iam_policy_document.producer_permissions
+aws_cloudwatch_log_group.firehose_errors
+aws_cloudwatch_log_stream.firehose_s3_delivery
+aws_iam_access_key.producer
+aws_iam_role.firehose_delivery
+aws_iam_role.lambda_spike_detector
+aws_iam_role_policy.firehose_delivery
+aws_iam_role_policy.lambda_spike_detector
+aws_iam_user.producer
+aws_iam_user_policy.producer
+aws_kinesis_firehose_delivery_stream.to_s3
+aws_kinesis_stream.stock_market
+aws_lambda_event_source_mapping.kinesis_to_lambda
+aws_lambda_function.spike_detector
+aws_s3_bucket.data_lake
+aws_s3_bucket_public_access_block.data_lake
+aws_sns_topic.spike_alerts
+aws_sns_topic_subscription.alert_email
+```
+
+To inspect a single resource from the list:
+
+```bash
+terraform state show aws_lambda_function.spike_detector
+terraform state show aws_sns_topic.spike_alerts
+```
 
 ---
 
@@ -416,7 +543,16 @@ kinesis_retention_hours          = 24
 firehose_buffer_size_mb          = 5
 firehose_buffer_interval_seconds = 60
 firehose_s3_compression          = "GZIP"
+
+# Required — spike alerts are sent here
+alert_email                      = "you@example.com"
+# Optional — default is 1.0%
+anomaly_threshold_pct            = 1.0
 ```
+
+> **`alert_email` is required.** If you do not set it in `terraform.tfvars`, Terraform will prompt for it interactively at plan/apply time.
+
+> **SNS email confirmation:** After `terraform apply`, AWS sends a confirmation email to `alert_email`. You must click **"Confirm subscription"** in that email before any alerts will be delivered.
 
 ---
 
@@ -582,7 +718,63 @@ ORDER BY avg_price DESC;
 
 ---
 
-## 10. Monitoring
+## 10. Spike Detection (Lambda + SNS)
+
+A Lambda function (`spike_detector`) is triggered by the Kinesis Data Stream in real time. For every batch of up to 10 records it checks whether `abs(price_change_pct) >= anomaly_threshold_pct` and publishes an SNS alert for each anomaly it finds.
+
+### How it works
+
+```
+Kinesis record batch (≤10)
+        │
+        ▼
+spike_detector.handler()
+  for each record:
+    decode base64 → parse JSON
+    if abs(price_change_pct) >= threshold:
+        sns.publish(subject, message)
+        log anomaly
+        │
+        ▼
+  SNS Topic ──► Email
+```
+
+### Alert email format
+
+```
+Subject: [Stock Spike UP] AAPL moved +3.72%
+
+SPIKE ALERT
+===========
+Direction : UP
+Ticker    : AAPL
+Price     : $213.49
+Change    : +3.7200%
+Threshold : ±1.0%
+Time      : 2026-04-14T18:30:01.123456+00:00
+```
+
+### Tuning the threshold
+
+Change `anomaly_threshold_pct` in `terraform.tfvars` and re-apply:
+
+```hcl
+anomaly_threshold_pct = 3.0   # only alert on moves ≥ 3%
+```
+
+```bash
+terraform apply -var="anomaly_threshold_pct=3.0"
+```
+
+### Viewing Lambda logs
+
+```bash
+aws logs tail /aws/lambda/stock-market-kinesis-dev-spike-detector --follow
+```
+
+---
+
+## 11. Monitoring
 
 ### CloudWatch Logs
 
@@ -608,7 +800,7 @@ aws logs tail /aws/kinesisfirehose/stock-market-kinesis-dev-kinesis-firehose --f
 
 ---
 
-## 11. Teardown
+## 12. Teardown
 
 To destroy all AWS resources and stop incurring costs:
 
@@ -623,7 +815,7 @@ Type `yes` when prompted.
 
 ---
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 **`UnauthorizedOperation` when running Terraform**
 Your IAM identity needs permissions to create the resources listed in Section 5. Check your profile or credentials are active.
@@ -640,9 +832,18 @@ Firehose buffers for at least 60 seconds. Check the Firehose error log group for
 **yfinance returns `None` prices**
 Markets may be closed (weekends/holidays). yfinance returns the last available price. The producer handles `None` values gracefully — records are still sent, just with `null` fields.
 
+**No spike alert emails received**
+1. Check you clicked **"Confirm subscription"** in the AWS confirmation email sent to `alert_email`.
+2. Verify the Lambda is enabled: AWS Console → Lambda → `*-spike-detector` → Triggers.
+3. Check Lambda logs: `aws logs tail /aws/lambda/stock-market-kinesis-dev-spike-detector --follow`
+4. The default threshold is ±1%. If `price_change_pct` is always `null` (markets closed), no alerts fire.
+
+**Lambda event source mapping shows `disabled`**
+This can happen if the Lambda encounters repeated errors. Check CloudWatch Logs for the function, fix the issue, then re-enable the trigger in the AWS Console or via `terraform apply`.
+
 ---
 
-## 13. Official Documentation
+## 14. Official Documentation
 
 ### AWS
 
@@ -652,6 +853,9 @@ Markets may be closed (weekends/holidays). yfinance returns the last available p
 - [AWS IAM User Guide](https://docs.aws.amazon.com/IAM/latest/UserGuide/introduction.html)
 - [AWS CLI Configuration Guide](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html)
 - [Amazon CloudWatch Logs User Guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/WhatIsCloudWatchLogs.html)
+- [AWS Lambda Developer Guide](https://docs.aws.amazon.com/lambda/latest/dg/welcome.html)
+- [Using Lambda with Kinesis](https://docs.aws.amazon.com/lambda/latest/dg/with-kinesis.html)
+- [Amazon SNS Developer Guide](https://docs.aws.amazon.com/sns/latest/dg/welcome.html)
 
 ### Terraform
 
@@ -659,6 +863,8 @@ Markets may be closed (weekends/holidays). yfinance returns the last available p
 - [Terraform AWS Provider — Kinesis Firehose](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/kinesis_firehose_delivery_stream)
 - [Terraform AWS Provider — S3 Bucket](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket)
 - [Terraform AWS Provider — IAM](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role)
+- [Terraform AWS Provider — Lambda](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/lambda_function)
+- [Terraform AWS Provider — SNS](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sns_topic)
 - [Terraform Language Documentation](https://developer.hashicorp.com/terraform/language)
 - [Terraform CLI Commands](https://developer.hashicorp.com/terraform/cli/commands)
 
