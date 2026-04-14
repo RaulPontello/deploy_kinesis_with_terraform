@@ -91,11 +91,27 @@ variable "firehose_buffer_size_mb" {
 variable "firehose_buffer_interval_seconds" {
   description = "Buffer interval (seconds) before Firehose flushes data to S3. Range: 60–900."
   type        = number
-  default     = 60
+  default     = 300
 }
 
 variable "firehose_s3_compression" {
   description = "Compression format for S3 objects (UNCOMPRESSED | GZIP | ZIP | Snappy)"
   type        = string
   default     = "GZIP"
+}
+
+# ─────────────────────────────────────────────
+#  Lambda – Spike Detector
+# ─────────────────────────────────────────────
+
+variable "anomaly_threshold_pct" {
+  description = "Absolute price-change percentage that triggers a spike alert (e.g. 5.0 means ±5%)"
+  type        = number
+  default     = 0.25
+}
+
+variable "alert_email" {
+  description = "Email address that receives SNS spike-alert notifications"
+  type        = string
+  default     = "raul.pontello@caylent.com"
 }

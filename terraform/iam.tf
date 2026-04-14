@@ -112,6 +112,100 @@ resource "aws_iam_role_policy" "firehose_delivery" {
 }
 
 # ─────────────────────────────────────────────
+# IAM Role - Lambda Spike Detector
+# ─────────────────────────────────────────────
+
+# Trust policy – only the Lambda service can assume this role
+data "aws_iam_policy_document" "lambda_assume_role" {
+  statement {
+    sid    = "AllowLambdaAssumeRole"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+
+    actions = ["sts:AssumeRole"]
+  }
+}
+
+resource "aws_iam_role" "lambda_spike_detector" {
+  name               = "${local.generic_prefix}-lambda-spike-detector-role"
+  description        = "Execution role for the spike detector Lambda"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+data "aws_iam_policy_document" "lambda_permissions" {
+
+  # 1. CloudWatch Logs – write function logs
+  statement {
+    sid    = "CloudWatchLogs"
+    effect = "Allow"
+
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+    ]
+
+    resources = ["arn:aws:logs:*:*:*"]
+  }
+
+  # 2. Read records from Kinesis Data Stream
+  statement {
+    sid    = "ReadFromKinesisStream"
+    effect = "Allow"
+
+    actions = [
+      "kinesis:DescribeStream",
+      "kinesis:DescribeStreamSummary",
+      "kinesis:GetShardIterator",
+      "kinesis:GetRecords",
+      "kinesis:ListShards",
+      "kinesis:SubscribeToShard",
+    ]
+
+    resources = [aws_kinesis_stream.stock_market.arn]
+  }
+
+  # 3. Publish spike alerts to SNS
+  statement {
+    sid    = "PublishToSNS"
+    effect = "Allow"
+
+    actions = ["sns:Publish"]
+
+    resources = [aws_sns_topic.spike_alerts.arn]
+  }
+
+  # 4. KMS – decrypt stream records (only when stream encryption is enabled)
+  dynamic "statement" {
+    for_each = var.kinesis_encryption_enabled ? [1] : []
+    content {
+      sid    = "KMSDecryptKinesis"
+      effect = "Allow"
+
+      actions = ["kms:Decrypt"]
+
+      resources = ["*"]
+
+      condition {
+        test     = "StringLike"
+        variable = "kms:ViaService"
+        values   = ["kinesis.${var.aws_region}.amazonaws.com"]
+      }
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_spike_detector" {
+  name   = "${local.generic_prefix}-lambda-spike-detector-policy"
+  role   = aws_iam_role.lambda_spike_detector.id
+  policy = data.aws_iam_policy_document.lambda_permissions.json
+}
+
+# ─────────────────────────────────────────────
 # IAM User - Data Producer
 # ─────────────────────────────────────────────
 

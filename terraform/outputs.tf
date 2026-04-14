@@ -66,6 +66,7 @@ output "producer_iam_user" {
 output "producer_access_key_id" {
   description = "AWS Access Key ID for the producer — paste into .env"
   value       = aws_iam_access_key.producer.id
+  sensitive   = true
 }
 
 output "producer_secret_access_key" {
@@ -91,4 +92,25 @@ output "producer_env_snippet" {
 output "cloudwatch_log_group" {
   description = "CloudWatch log group for Firehose error logs"
   value       = aws_cloudwatch_log_group.firehose_errors.name
+}
+
+# ─────────────────────────────────────────────
+#  SNS
+# ─────────────────────────────────────────────
+output "sns_spike_alerts_arn" {
+  description = "ARN of the SNS topic that receives spike alerts"
+  value       = aws_sns_topic.spike_alerts.arn
+}
+
+# ─────────────────────────────────────────────
+#  Lambda
+# ─────────────────────────────────────────────
+output "lambda_function_name" {
+  description = "Name of the spike detector Lambda function"
+  value       = aws_lambda_function.spike_detector.function_name
+}
+
+output "lambda_function_arn" {
+  description = "ARN of the spike detector Lambda function"
+  value       = aws_lambda_function.spike_detector.arn
 }
