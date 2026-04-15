@@ -107,7 +107,7 @@ variable "firehose_s3_compression" {
 variable "anomaly_threshold_pct" {
   description = "Absolute price-change percentage that triggers a spike alert (e.g. 5.0 means ±5%)"
   type        = number
-  default     = 0.25
+  default     = 1
 }
 
 variable "alert_email" {

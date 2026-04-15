@@ -79,17 +79,11 @@ class StockQuote:
 class StockFetcher:
     def __init__(self, tickers: list[str]) -> None:
         self.tickers = [t.upper() for t in tickers]
-        self._cache: dict[str, yf.Ticker] = {}
-
-    def _get_ticker(self, symbol: str) -> yf.Ticker:
-        if symbol not in self._cache:
-            self._cache[symbol] = yf.Ticker(symbol)
-        return self._cache[symbol]
 
     def _safe_float(self, value) -> float | None:
         try:
             v = float(value)
-            return round(v, 4) if v == v else None  # NaN check
+            return v if v == v else None  # NaN check
         except (TypeError, ValueError):
             return None
 
@@ -101,16 +95,22 @@ class StockFetcher:
 
     def fetch_quote(self, symbol: str) -> StockQuote | None:
         try:
-            info           = self._get_ticker(symbol).fast_info
-            current_price  = self._safe_float(getattr(info, "last_price",    None))
+            ticker = yf.Ticker(symbol)
+            info   = ticker.fast_info
+
+            # fast_info.last_price is served from yfinance's HTTP cache — use
+            # history() instead, which always issues a fresh request to Yahoo Finance
+            hist          = ticker.history(period="1d", interval="1m")
+            current_price = self._safe_float(hist["Close"].iloc[-1]) if not hist.empty else None
+
             previous_close = self._safe_float(getattr(info, "previous_close", None))
             open_price     = self._safe_float(getattr(info, "open",           None))
 
             price_change     = None
             price_change_pct = None
             if current_price is not None and previous_close:
-                price_change     = round(current_price - previous_close, 4)
-                price_change_pct = round((price_change / previous_close) * 100, 4)
+                price_change     = current_price - previous_close
+                price_change_pct = (price_change / previous_close) * 100
 
             return StockQuote(
                 ticker         = symbol,
@@ -196,6 +196,8 @@ def run(tickers: list[str], stream_name: str, interval: int, duration: int | Non
 
     try:
         while True:
+            log.info("-----------------------------")
+            
             cycle_start = time.time()
             quotes      = fetcher.fetch_all()
 

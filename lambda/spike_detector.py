@@ -36,6 +36,8 @@ def handler(event, context):
     anomalies = 0
 
     for record in records:
+        log.info("-----------------------------")
+
         # Kinesis payloads are base64-encoded
         raw = base64.b64decode(record["kinesis"]["data"]).decode("utf-8")
 
@@ -45,15 +47,19 @@ def handler(event, context):
             log.warning("Skipping unparseable record: %s", raw[:120])
             continue
 
+        log.info("quote=%s", quote)
+                 
         ticker           = quote.get("ticker", "UNKNOWN")
-        price_change_pct = quote.get("price_change_pct")
         current_price    = quote.get("current_price")
+        previous_close   = quote.get("previous_close")
+        price_change_pct = quote.get("price_change_pct")
         event_time       = quote.get("event_time", "")
 
         log.info(
-            "ticker=%s  price=%s  change_pct=%s",
+            "ticker=%s  current_price=%s  previous_close=%s price_change_pct=%s",
             ticker,
             current_price,
+            previous_close,
             price_change_pct,
         )
 
@@ -69,12 +75,13 @@ def handler(event, context):
             message = (
                 f"SPIKE ALERT\n"
                 f"===========\n"
-                f"Direction : {direction}\n"
-                f"Ticker    : {ticker}\n"
-                f"Price     : ${current_price}\n"
-                f"Change    : {price_change_pct:+.4f}%\n"
-                f"Threshold : ±{THRESHOLD_PCT}%\n"
-                f"Time      : {event_time}\n"
+                f"Direction      : {direction}\n"
+                f"Ticker         : {ticker}\n"
+                f"Current Price  : ${current_price}\n"
+                f"Previous Close : ${previous_close}\n"
+                f"Change         : {price_change_pct:+.4f}%\n"
+                f"Threshold      : ±{THRESHOLD_PCT}%\n"
+                f"Time           : {event_time}\n"
             )
 
             sns.publish(
@@ -84,5 +91,13 @@ def handler(event, context):
             )
             log.info("SNS alert published — ticker=%s change_pct=%.4f%%", ticker, price_change_pct)
 
+            log.info(
+                "SNS alert published — ticker=%s  current_price=%s  previous_close=%s price_change_pct=%s",
+                ticker,
+                current_price,
+                previous_close,
+                price_change_pct,
+                )
+            
     log.info("Batch complete — processed=%d anomalies=%d", len(records), anomalies)
     return {"processed": len(records), "anomalies": anomalies}

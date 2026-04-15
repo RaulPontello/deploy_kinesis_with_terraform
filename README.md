@@ -544,13 +544,9 @@ firehose_buffer_size_mb          = 5
 firehose_buffer_interval_seconds = 60
 firehose_s3_compression          = "GZIP"
 
-# Required — spike alerts are sent here
-alert_email                      = "you@example.com"
-# Optional — default is 1.0%
-anomaly_threshold_pct            = 1.0
+alert_email           = "you@example.com"  # default is set; override to your address
+anomaly_threshold_pct = 1                  # default is 1%
 ```
-
-> **`alert_email` is required.** If you do not set it in `terraform.tfvars`, Terraform will prompt for it interactively at plan/apply time.
 
 > **SNS email confirmation:** After `terraform apply`, AWS sends a confirmation email to `alert_email`. You must click **"Confirm subscription"** in that email before any alerts will be delivered.
 
