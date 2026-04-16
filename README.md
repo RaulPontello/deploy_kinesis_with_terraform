@@ -661,13 +661,6 @@ python stock_producer.py --help
   "event_time": "2026-04-08T14:30:01.234567+00:00",
   "ticker": "AAPL",
   "current_price": 225.50,
-  "open_price": 224.30,
-  "previous_close": 224.30,
-  "day_high": 226.10,
-  "day_low": 223.80,
-  "volume": 52841300,
-  "market_cap": 3420000000000,
-  "price_change": 1.20,
   "price_change_pct": 0.5349
 }
 ```
@@ -742,12 +735,12 @@ Subject: [Stock Spike UP] AAPL moved +3.72%
 
 SPIKE ALERT
 ===========
-Direction : UP
-Ticker    : AAPL
-Price     : $213.49
-Change    : +3.7200%
-Threshold : ±1.0%
-Time      : 2026-04-14T18:30:01.123456+00:00
+Direction      : UP
+Ticker         : AAPL
+Current Price  : $213.49
+Change         : +3.7200%
+Threshold      : ±1.0%
+Time           : 2026-04-14T18:30:01.123456+00:00
 ```
 
 ### Tuning the threshold

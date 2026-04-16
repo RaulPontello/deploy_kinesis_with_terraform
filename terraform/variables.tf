@@ -11,13 +11,12 @@ variable "project_name" {
 variable "profile_name" {
   description = "Name of the profile used to connect to AWS Account"
   type        = string
-  default     = "caylent_profile"
 }
 
 variable "owner_name" {
   description = "Name of the project's owner"
   type        = string
-  default     = "raul.pontello@caylent.com"
+  default     = "Raul Pontello"
 }
 
 variable "environment" {
@@ -113,5 +112,4 @@ variable "anomaly_threshold_pct" {
 variable "alert_email" {
   description = "Email address that receives SNS spike-alert notifications"
   type        = string
-  default     = "raul.pontello@caylent.com"
 }

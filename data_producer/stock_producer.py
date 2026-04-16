@@ -63,13 +63,6 @@ class StockQuote:
     event_time:      str           = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     ticker:          str           = ""
     current_price:   float | None  = None
-    open_price:      float | None  = None
-    previous_close:  float | None  = None
-    day_high:        float | None  = None
-    day_low:         float | None  = None
-    volume:          int   | None  = None
-    market_cap:      int   | None  = None
-    price_change:    float | None  = None
     price_change_pct: float | None = None
 
     def to_json(self) -> str:
@@ -80,50 +73,23 @@ class StockFetcher:
     def __init__(self, tickers: list[str]) -> None:
         self.tickers = [t.upper() for t in tickers]
 
-    def _safe_float(self, value) -> float | None:
-        try:
-            v = float(value)
-            return v if v == v else None  # NaN check
-        except (TypeError, ValueError):
-            return None
-
-    def _safe_int(self, value) -> int | None:
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
-
     def fetch_quote(self, symbol: str) -> StockQuote | None:
         try:
-            ticker = yf.Ticker(symbol)
-            info   = ticker.fast_info
-
-            # fast_info.last_price is served from yfinance's HTTP cache — use
-            # history() instead, which always issues a fresh request to Yahoo Finance
-            hist          = ticker.history(period="1d", interval="1m")
-            current_price = self._safe_float(hist["Close"].iloc[-1]) if not hist.empty else None
-
-            previous_close = self._safe_float(getattr(info, "previous_close", None))
-            open_price     = self._safe_float(getattr(info, "open",           None))
-
-            price_change     = None
-            price_change_pct = None
-            if current_price is not None and previous_close:
-                price_change     = current_price - previous_close
-                price_change_pct = (price_change / previous_close) * 100
-
-            return StockQuote(
-                ticker         = symbol,
-                current_price  = current_price,
-                open_price     = open_price,
-                previous_close = previous_close,
-                day_high       = self._safe_float(getattr(info, "day_high",  None)),
-                day_low        = self._safe_float(getattr(info, "day_low",   None)),
-                volume         = self._safe_int(getattr(info,  "three_month_average_volume", None)),
-                market_cap     = self._safe_int(getattr(info,  "market_cap", None)),
-                price_change     = price_change,
+            ticker           = yf.Ticker(symbol)
+            info             = ticker.info
+            current_price    = info.get("regularMarketPrice") or info.get("currentPrice")
+            price_change_pct = info.get("regularMarketChangePercent")  # already a percentage, e.g. 2.34
+                        
+            stock_quote = StockQuote(
+                ticker           = symbol,
+                current_price    = current_price,
                 price_change_pct = price_change_pct,
-            )
+                )
+
+            log.info(f"event_time: {stock_quote.event_time[11:19]}, ticker: {stock_quote.ticker}, current_price: ${stock_quote.current_price:,.4f}, price_change_pct: {stock_quote.price_change_pct:+.4f}%")
+
+            return stock_quote
+        
         except Exception as exc:
             log.warning("Failed to fetch %s: %s", symbol, exc)
             return None

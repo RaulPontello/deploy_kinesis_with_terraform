@@ -51,16 +51,15 @@ def handler(event, context):
                  
         ticker           = quote.get("ticker", "UNKNOWN")
         current_price    = quote.get("current_price")
-        previous_close   = quote.get("previous_close")
         price_change_pct = quote.get("price_change_pct")
         event_time       = quote.get("event_time", "")
 
         log.info(
-            "ticker=%s  current_price=%s  previous_close=%s price_change_pct=%s",
+            "ticker=%s  current_price=%s  price_change_pct=%s threshold_pct=%s",
             ticker,
             current_price,
-            previous_close,
             price_change_pct,
+            THRESHOLD_PCT
         )
 
         if price_change_pct is None:
@@ -78,7 +77,6 @@ def handler(event, context):
                 f"Direction      : {direction}\n"
                 f"Ticker         : {ticker}\n"
                 f"Current Price  : ${current_price}\n"
-                f"Previous Close : ${previous_close}\n"
                 f"Change         : {price_change_pct:+.4f}%\n"
                 f"Threshold      : ±{THRESHOLD_PCT}%\n"
                 f"Time           : {event_time}\n"
@@ -92,10 +90,9 @@ def handler(event, context):
             log.info("SNS alert published — ticker=%s change_pct=%.4f%%", ticker, price_change_pct)
 
             log.info(
-                "SNS alert published — ticker=%s  current_price=%s  previous_close=%s price_change_pct=%s",
+                "SNS alert published — ticker=%s  current_price=%s  price_change_pct=%s",
                 ticker,
                 current_price,
-                previous_close,
                 price_change_pct,
                 )
             
